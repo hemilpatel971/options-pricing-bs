@@ -23,4 +23,5 @@ jobs:
           pip install fastapi pytest httpx  
 
       - name: Run tests
-        run: pytest --maxfail=1 --disable-warnings -q
+        run: PYTHONPATH=. pytest --maxfail=1 --disable-warnings -q
+
