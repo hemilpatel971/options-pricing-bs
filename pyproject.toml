@@ -1,4 +1,3 @@
-cat > pyproject.toml <<EOF
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -6,5 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "options_pricing_bs"
 version = "0.1.0"
-dependencies = ["fastapi","httpx"]
-EOF
+dependencies = [
+  "fastapi",
+  "httpx",
+]
