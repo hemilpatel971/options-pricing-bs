@@ -1,6 +1,8 @@
-from fastapi import FastAPI
-from math import log, sqrt, exp, erf
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from datetime import date
 import yfinance as yf
+from bs_model import black_scholes_price, black_scholes_greeks
 
 app = FastAPI()
 
@@ -8,45 +10,84 @@ app = FastAPI()
 def read_root():
     return {"message": "Hello, FastAPI!"}
 
-@app.get("/api/spot")
-def get_spot(symbol: str):
-    """
-    Query parameter:
-      - symbol: e.g. 'AAPL' or 'MSFT'
-    Returns the latest close price (delayed ~15m).
-    """
-    ticker = yf.Ticker(symbol)
-    hist = ticker.history(period="1d")
-    # Handle missing data (e.g., invalid symbol)
-    if hist.empty:
-        price = 0.0
-    else:
-        price = hist["Close"].iloc[-1]
-    return {"symbol": symbol.upper(), "price": float(price)}
+# 1. Spot price
+@app.get("/api/bs/spot")
+def get_spot(ticker: str):
+    tk = yf.Ticker(ticker)
+    # Try regular market price first, fallback to last close
+    info_price = tk.info.get("regularMarketPrice")
+    hist = tk.history(period="1d")
+    price = info_price if info_price is not None else (hist["Close"].iloc[-1] if not hist.empty else None)
+    if price is None:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found or no price data")
+    return {"spot": float(price)}
 
+# 2. Expirations
+@app.get("/api/bs/expirations")
+def get_exps(ticker: str):
+    exps = yf.Ticker(ticker).options
+    return {"expirations": exps}
 
-def normal_cdf(x: float) -> float:
-    """Cumulative distribution function for standard normal."""
-    return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+# 3. Option chain
+@app.get("/api/bs/option_chain")
+def get_chain(ticker: str, expiration: date):
+    tk = yf.Ticker(ticker)
+    exp_str = expiration.isoformat()
+    if exp_str not in tk.options:
+        raise HTTPException(status_code=404, detail="Invalid expiration")
+    chain = tk.option_chain(exp_str)
+    return {
+        "calls": chain.calls.to_dict("records"),
+        "puts": chain.puts.to_dict("records"),
+    }
 
+# 4. Black–Scholes calculation with dividend yield
+class CalcReq(BaseModel):
+    spot: float = Field(..., gt=0)
+    strike: float = Field(..., gt=0)
+    expiration: date
+    rate: float = Field(..., ge=0)
+    volatility: float = Field(..., gt=0)
+    dividend_yield: float = Field(0.0, ge=0.0)
 
-def bs_price(
-    S: float,      # spot price
-    K: float,      # strike price
-    T: float,      # time to expiry (in years)
-    r: float,      # risk-free rate (decimal, e.g. 0.03)
-    sigma: float,  # volatility (decimal, e.g. 0.2)
-    option_type: str  # "call" or "put"
-) -> float:
-    """Compute Black–Scholes price for a European call or put."""
-    # If time to expiry is effectively zero, return intrinsic value
-    if T <= 0 or T < 1e-5:
-        return max(0.0, S - K) if option_type == "call" else max(0.0, K - S)
+class CalcResp(BaseModel):
+    call_price: float
+    put_price: float
+    greeks: dict
 
-    d1 = (log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * sqrt(T))
-    d2 = d1 - sigma * sqrt(T)
+@app.post("/api/bs/calculate", response_model=CalcResp)
+def calculate(req: CalcReq):
+    # Time to expiration in years
+    T = (req.expiration - date.today()).days / 365.0
 
-    if option_type == "call":
-        return S * normal_cdf(d1) - K * exp(-r * T) * normal_cdf(d2)
-    else:  # put
-        return K * exp(-r * T) * normal_cdf(-d2) - S * normal_cdf(-d1)
+    # Theoretical prices accounting for continuous dividend yield (q)
+    call_price = black_scholes_price(
+        S=req.spot,
+        K=req.strike,
+        T=T,
+        r=req.rate,
+        sigma=req.volatility,
+        q=req.dividend_yield,
+        option_type="call",
+    )
+    put_price = black_scholes_price(
+        S=req.spot,
+        K=req.strike,
+        T=T,
+        r=req.rate,
+        sigma=req.volatility,
+        q=req.dividend_yield,
+        option_type="put",
+    )
+
+    # Greeks remain the same (not adjusted for q here)
+    greeks = black_scholes_greeks(
+        S=req.spot,
+        K=req.strike,
+        T=T,
+        r=req.rate,
+        sigma=req.volatility,
+        q=req.dividend_yield,
+    )
+
+    return CalcResp(call_price=call_price, put_price=put_price, greeks=greeks)
