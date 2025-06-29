@@ -6,6 +6,7 @@ from bs_model import black_scholes_price, black_scholes_greeks
 
 app = FastAPI()
 
+# Root health check
 @app.get("/")
 def read_root():
     return {"message": "Hello, FastAPI!"}
@@ -80,7 +81,6 @@ def calculate(req: CalcReq):
         option_type="put",
     )
 
-    # Greeks remain the same (not adjusted for q here)
     greeks = black_scholes_greeks(
         S=req.spot,
         K=req.strike,
@@ -91,3 +91,64 @@ def calculate(req: CalcReq):
     )
 
     return CalcResp(call_price=call_price, put_price=put_price, greeks=greeks)
+
+# 5. Heatmap of theoretical option prices (default 10×10 grid) for both call and put
+class HeatmapReq(BaseModel):
+    strike: float = Field(..., gt=0)
+    expiration: date
+    rate: float = Field(..., ge=0)
+    dividend_yield: float = Field(0.0, ge=0.0)
+    spot_min: float = Field(..., gt=0)
+    spot_max: float = Field(..., gt=0)
+    spot_steps: int = Field(10, gt=1)  # default to 10 points
+    vol_min: float = Field(..., ge=0)
+    vol_max: float = Field(..., ge=0)
+    vol_steps: int = Field(10, gt=1)   # default to 10 points
+
+class HeatmapResp(BaseModel):
+    spots: list[float]
+    vols: list[float]
+    call_prices: list[list[float]]
+    put_prices: list[list[float]]
+
+@app.post("/api/bs/heatmap", response_model=HeatmapResp)
+def heatmap(req: HeatmapReq):
+    """
+    Generate a heatmap grid of Black–Scholes prices over spot and volatility ranges for both call and put.
+    Returns spots[], vols[], and 2D grids call_prices[][], put_prices[][].
+    """
+    # Time to expiration in years
+    T = (req.expiration - date.today()).days / 365.0
+
+    # Generate spot and vol arrays
+    spot_step = (req.spot_max - req.spot_min) / (req.spot_steps - 1)
+    spots = [req.spot_min + i * spot_step for i in range(req.spot_steps)]
+    vol_step = (req.vol_max - req.vol_min) / (req.vol_steps - 1)
+    vols = [req.vol_min + j * vol_step for j in range(req.vol_steps)]
+
+    # Compute call and put price grids
+    call_prices = []
+    put_prices = []
+    for vol in vols:
+        row_call = []
+        row_put = []
+        for S in spots:
+            row_call.append(black_scholes_price(
+                S=S, K=req.strike, T=T, r=req.rate,
+                sigma=vol, q=req.dividend_yield,
+                option_type="call",
+            ))
+            row_put.append(black_scholes_price(
+                S=S, K=req.strike, T=T, r=req.rate,
+                sigma=vol, q=req.dividend_yield,
+                option_type="put",
+            ))
+        call_prices.append(row_call)
+        put_prices.append(row_put)
+
+    return {
+        "spots": spots,
+        "vols": vols,
+        "call_prices": call_prices,
+        "put_prices": put_prices,
+    }
