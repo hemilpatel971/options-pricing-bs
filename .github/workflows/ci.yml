@@ -22,5 +22,5 @@ jobs:
 
       - name: Run tests
         env:
-          PYTHONPATH: ${{ github.workspace }}/api
+          PYTHONPATH: ${{ github.workspace }}
         run: pytest --maxfail=1 --disable-warnings -q
