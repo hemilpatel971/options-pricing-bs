@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from datetime import date
 import yfinance as yf
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from bs_model import black_scholes_price, black_scholes_greeks
+from api.bs_model import black_scholes_price, black_scholes_greeks
 
 app = FastAPI()
 

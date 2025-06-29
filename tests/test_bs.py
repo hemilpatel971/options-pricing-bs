@@ -1,5 +1,5 @@
 import pytest
-from bs_model import black_scholes_price
+from api.bs_model import black_scholes_price
 
 def test_bs_zero_time_returns_intrinsic_call():
     # very short T should give intrinsic value
