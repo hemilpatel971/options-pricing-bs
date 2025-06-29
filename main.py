@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from datetime import date
 import yfinance as yf
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs_model import black_scholes_price, black_scholes_greeks
 
 app = FastAPI()
@@ -111,44 +112,40 @@ class HeatmapResp(BaseModel):
     call_prices: list[list[float]]
     put_prices: list[list[float]]
 
+
 @app.post("/api/bs/heatmap", response_model=HeatmapResp)
 def heatmap(req: HeatmapReq):
     """
     Generate a heatmap grid of Black–Scholes prices over spot and volatility ranges for both call and put.
-    Returns spots[], vols[], and 2D grids call_prices[][], put_prices[][].
+    Uses multithreading to compute call and put prices simultaneously.
     """
-    # Time to expiration in years
     T = (req.expiration - date.today()).days / 365.0
-
-    # Generate spot and vol arrays
     spot_step = (req.spot_max - req.spot_min) / (req.spot_steps - 1)
     spots = [req.spot_min + i * spot_step for i in range(req.spot_steps)]
     vol_step = (req.vol_max - req.vol_min) / (req.vol_steps - 1)
     vols = [req.vol_min + j * vol_step for j in range(req.vol_steps)]
 
-    # Compute call and put price grids
-    call_prices = []
-    put_prices = []
-    for vol in vols:
-        row_call = []
-        row_put = []
-        for S in spots:
-            row_call.append(black_scholes_price(
-                S=S, K=req.strike, T=T, r=req.rate,
-                sigma=vol, q=req.dividend_yield,
-                option_type="call",
-            ))
-            row_put.append(black_scholes_price(
-                S=S, K=req.strike, T=T, r=req.rate,
-                sigma=vol, q=req.dividend_yield,
-                option_type="put",
-            ))
-        call_prices.append(row_call)
-        put_prices.append(row_put)
+    # Preallocate grids
+    call_prices = [[0.0] * len(spots) for _ in vols]
+    put_prices = [[0.0] * len(spots) for _ in vols]
 
-    return {
-        "spots": spots,
-        "vols": vols,
-        "call_prices": call_prices,
-        "put_prices": put_prices,
-    }
+    # Worker function
+    def compute(idx_vol, idx_spot, S, vol):
+        c = black_scholes_price(S=S, K=req.strike, T=T, r=req.rate,
+            sigma=vol, q=req.dividend_yield, option_type="call")
+        p = black_scholes_price(S=S, K=req.strike, T=T, r=req.rate,
+            sigma=vol, q=req.dividend_yield, option_type="put")
+        return idx_vol, idx_spot, c, p
+
+    # Execute in thread pool
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for i, vol in enumerate(vols):
+            for j, S in enumerate(spots):
+                futures.append(executor.submit(compute, i, j, S, vol))
+        for future in as_completed(futures):
+            i, j, c, p = future.result()
+            call_prices[i][j] = c
+            put_prices[i][j] = p
+
+    return {"spots": spots, "vols": vols, "call_prices": call_prices, "put_prices": put_prices}
