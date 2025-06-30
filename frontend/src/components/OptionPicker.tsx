@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { BSInputs } from '../App';
 
 interface OptionRow {
   contractSymbol: string;
@@ -10,188 +11,215 @@ interface OptionRow {
 }
 
 interface OptionPickerProps {
-  symbol: string;
+  symbol?: string;
+  onCalculate: (inputs: BSInputs) => void;
 }
 
-export default function OptionPicker({ symbol }: OptionPickerProps) {
-  const [spotPrice, setSpotPrice]           = useState<number | null>(null);
+export default function OptionPicker({
+  symbol,
+  onCalculate
+}: OptionPickerProps) {
+  // BS-model inputs with defaults
+  const [spotStr, setSpotStr]           = useState('100.00');
+  const [strikeStr, setStrikeStr]       = useState('100.00');
+  const [volatility, setVolatility]     = useState('20.00');
+  const [riskFreeRate, setRiskFreeRate] = useState('0.0525');
+  const [dividendYield, setDividendYield] = useState('0.00');
+  const [daysStr, setDaysStr]           = useState('365');
+
+  // option chain state
   const [expirations, setExpirations]       = useState<string[]>([]);
-  const [selectedExpiry, setSelectedExpiry] = useState<string>('');
+  const [selectedExpiry, setSelectedExpiry] = useState('');
   const [side, setSide]                     = useState<'call'|'put'>('call');
   const [chain, setChain]                   = useState<OptionRow[]>([]);
-  const [selectedOption, setSelectedOption] = useState<OptionRow | null>(null);
+  const [selectedOption, setSelectedOption] = useState<OptionRow|null>(null);
 
+  // compute days until an ISO date
   const computeDays = (iso: string) => {
-    const MS_PER_DAY = 1000 * 60 * 60 * 24;
+    const MS = 1000*60*60*24;
+    const [y,m,d] = iso.split('-').map((s,i)=> i===1?parseInt(s,10)-1:parseInt(s,10));
+    const exp = new Date(y,m,d);
     const now = new Date();
-    const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const [y, m, d] = iso.split('-').map((s, i) =>
-      i === 1 ? parseInt(s, 10) - 1 : parseInt(s, 10)
-    );
-    const expMid = new Date(y, m, d);
-    return Math.max(0, Math.round((expMid.getTime() - todayMid.getTime()) / MS_PER_DAY));
+    const today = new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    return Math.max(0, Math.round((exp.getTime()-today.getTime())/MS));
   };
 
-  // Fetch spot price
+  // when user selects an option row
   useEffect(() => {
-    if (!symbol) { setSpotPrice(null); return; }
-    fetch(`/api/bs/spot?ticker=${symbol}`)
-      .then(r => r.json())
-      .then(d => setSpotPrice(d.spot))
-      .catch(() => setSpotPrice(null));
-  }, [symbol]);
+    if (selectedOption) {
+      setStrikeStr(selectedOption.strike.toFixed(2));
+      setDaysStr(String(computeDays(selectedExpiry)));
+    }
+  }, [selectedOption, selectedExpiry]);
 
-  // Fetch expirations
+  // on new symbol, fetch spot & expirations
   useEffect(() => {
-    if (!symbol) { setExpirations([]); setSelectedExpiry(''); return; }
+    if (!symbol) return;
+    fetch(`/api/bs/spot?ticker=${symbol}`)
+      .then(r=>r.json())
+      .then(d=> setSpotStr(d.spot.toFixed(2)))
+      .catch(()=>{});
+
     fetch(`/api/bs/expirations?ticker=${symbol}`)
-      .then(r => r.json())
-      .then(d => {
+      .then(r=>r.json())
+      .then(d=>{
         setExpirations(d.expirations);
         if (d.expirations.length) {
-          setSelectedExpiry(d.expirations[0]);
+          const first = d.expirations[0];
+          setSelectedExpiry(first);
+          setDaysStr(String(computeDays(first)));
         }
       });
   }, [symbol]);
 
-  // Fetch & trim option chain
+  // fetch & slice the option chain
   useEffect(() => {
-    if (!symbol || !selectedExpiry || spotPrice == null) return;
+    const sp = parseFloat(spotStr)||0;
+    if (!symbol||!selectedExpiry) return;
     fetch(`/api/bs/option_chain?ticker=${symbol}&expiration=${selectedExpiry}`)
-      .then(r => r.json())
-      .then(d => {
-        let rows: OptionRow[] = (side === 'call' ? d.calls : d.puts).map((o: any) => ({
-          contractSymbol: o.contractSymbol,
-          strike: o.strike,
-          bid: o.bid,
-          ask: o.ask,
-          lastPrice: o.lastPrice,
-          inTheMoney: o.inTheMoney,
-        }));
-        rows.sort((a, b) => a.strike - b.strike);
-        const idx = rows.findIndex(r => r.strike >= spotPrice);
-        const center = idx >= 0 ? idx : Math.floor(rows.length / 2);
-        const start = Math.max(0, center - 4);
-        setChain(rows.slice(start, start + 9));
-        setSelectedOption(null);
+      .then(r=>r.json())
+      .then(d=>{
+        const rows: OptionRow[] = (side==='call'?d.calls:d.puts)
+          .map((o:any)=>({
+            contractSymbol:o.contractSymbol,
+            strike:o.strike,
+            bid:o.bid,
+            ask:o.ask,
+            lastPrice:o.lastPrice,
+            inTheMoney:o.inTheMoney
+          }))
+          .sort((a,b)=>b.strike-a.strike);
+
+        const idx = rows.findIndex(r=>r.strike<=sp);
+        const center = idx>=0?idx:Math.floor(rows.length/2);
+        const start  = Math.max(0, center-4);
+        setChain(rows.slice(start, start+9));
       });
-  }, [symbol, selectedExpiry, side, spotPrice]);
+  }, [symbol, selectedExpiry, side, spotStr]);
+
+  // fire calculation back to App
+  const handleCalculate = () => {
+    onCalculate({
+      spot:         parseFloat(spotStr),
+      strike:       parseFloat(strikeStr),
+      days:         parseInt(daysStr)||0,
+      volatility:   parseFloat(volatility),
+      rate:         parseFloat(riskFreeRate)*100,
+      dividendYield:parseFloat(dividendYield),
+    });
+  };
 
   return (
     <div className="space-y-6 p-6 bg-bg-default rounded-lg">
-      <h2 className="text-xs font-extralight mb-3">Data is delayed by 15 min (using yfinance API)</h2>
-      <div className="flex items-center space-x-6">
-        {/* Call/Put toggle */}
-        <div className="inline-flex overflow-hidden rounded-md border border-green-500">
-          {['call','put'].map(s => (
-            <button
-              key={s}
-              onClick={() => setSide(s as 'call'|'put')}
-              className={`px-6 py-2 font-semibold ${
-                side === s ? 'bg-green-500 text-black' : 'bg-transparent text-green-500 hover:bg-green-600/20'
-              }`}
-            >
-              {s.toUpperCase()}
-            </button>
-          ))}
-        </div>
-
-        {/* Expiration selector */}
-        <select
-          value={selectedExpiry}
-          onChange={e => setSelectedExpiry(e.target.value)}
-          className="
-          h-10          
-          px-4 
-          bg-bg-input 
-          border border-[#2A2A2A] 
-          rounded-md 
-          text-text-primary
-        "
-        >
-          {expirations.map(iso => {
-          const [y, m, d] = iso.split('-').map((s, i) =>
-            i === 1 ? parseInt(s, 10) - 1 : parseInt(s, 10)
-          );
-          const dt = new Date(y, m, d);
-          const days = computeDays(iso);
-          return (
-            <option key={iso} value={iso}>
-              {dt.toLocaleDateString('en-US', {
-                month: 'short',
-                day:   'numeric',
-                year:  'numeric',
-              })} ({days}d)
-            </option>
-          );
-        })}
-        </select>
-      </div>
-
-      {/* Scrollable table */}
-      <div className="overflow-y-auto max-h-64 scrollbar-none">
-        <table className="w-full table-fixed text-left">
-          <thead className="sticky top-0 bg-bg-default">
-            <tr className="border-b border-[#2A2A2A]">
-              {[
-                { key: 'strike', label: 'Strike', width: '15%' },
-                { key: 'last',   label: 'Last',   width: '15%' },
-                { key: 'bid',    label: 'Bid',    width: '15%' },
-                { key: 'ask',    label: 'Ask',    width: '15%' },
-                { key: 'itm',    label: 'In The Money', width: '20%' },
-                { key: 'sel',    label: 'Select', width: '20%' },
-              ].map(col => (
-                <th
-                  key={col.key}
-                  className="pb-2 text-sm font-medium"
-                  style={{ width: col.width }}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {chain.map(r => {
-              const isSel = selectedOption?.contractSymbol === r.contractSymbol;
-              return (
-                <tr key={r.contractSymbol} className="hover:bg-bg-input">
-                  <td className="py-2">${r.strike.toFixed(2)}</td>
-                  <td className="py-2">${r.lastPrice.toFixed(2)}</td>
-                  <td className="py-2">${r.bid.toFixed(2)}</td>
-                  <td className="py-2">${r.ask.toFixed(2)}</td>
-                  <td className="py-2">
-                    {r.inTheMoney
-                      ? <span className="text-green-500 font-bold">✔</span>
-                      : <span className="text-text-secondary">—</span>}
-                  </td>
-                  <td className="py-2">
-                    <button
-                      onClick={() => setSelectedOption(r)}
-                      className={`px-3 py-1 rounded ${
-                        isSel
-                          ? 'bg-green-500 text-black'
-                          : 'bg-transparent border border-green-500 text-green-500 hover:bg-green-600/20'
-                      }`}
-                    >
-                      {isSel ? '✓' : 'Select'}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Share price below */}
-      {spotPrice != null && (
-        <div className="flex justify-center">
-          <div className="bg-green-500 rounded-full px-6 py-2 text-black font-semibold">
-            Share price: ${spotPrice.toFixed(2)}
+      {/* BS-model inputs, single condensed row */}
+      <div className="flex flex-wrap items-end gap-4">
+        {[
+          { label:'Spot Price ($)',    value:spotStr,       setter:setSpotStr    },
+          { label:'Strike Price ($)',  value:strikeStr,     setter:setStrikeStr  },
+          { label:'Time to Expiry',    value:daysStr,       setter:setDaysStr    },
+          { label:'Volatility (%)',    value:volatility,    setter:setVolatility },
+          { label:'Risk-Free Rate (%)',value:riskFreeRate,   setter:setRiskFreeRate },
+          { label:'Dividend Yield (%)',value:dividendYield,  setter:setDividendYield },
+        ].map((f,i)=>(
+          <div key={i} className="flex flex-col flex-1 min-w-[130px]">
+            <label className="text-xs font-semibold mb-1">{f.label}</label>
+            <input
+              inputMode="decimal"
+              value={f.value}
+              onChange={e=>{
+                const v=e.target.value;
+                if(/^\d*\.?\d{0,2}$/.test(v)) f.setter(v);
+              }}
+              className="w-full h-8 px-2 bg-white dark:bg-black border rounded text-sm"
+            />
           </div>
+        ))}
+        <button
+          onClick={handleCalculate}
+          className="h-8 px-4 bg-primary-400 hover:bg-primary-300 text-black font-semibold rounded text-sm"
+        >
+          Calculate
+        </button>
+      </div>
+
+      {/* Option controls & table */}
+      <div className="pt-6 border-t border-[#2A2A2A] space-y-4">
+        {/* call/put + expiration */}
+        <div className="flex items-center space-x-6">
+          <div className="inline-flex overflow-hidden rounded-md border border-green-500">
+            {['call','put'].map(s=>(
+              <button
+                key={s}
+                onClick={()=>setSide(s as 'call'|'put')}
+                className={`px-6 py-2 font-semibold ${
+                  side===s
+                   ? 'bg-green-500 text-black'
+                   : 'bg-transparent text-green-500 hover:bg-green-600/20'
+                }`}
+              >{s.toUpperCase()}</button>
+            ))}
+          </div>
+          <select
+            value={selectedExpiry}
+            onChange={e=>{
+              setSelectedExpiry(e.target.value);
+              setDaysStr(String(computeDays(e.target.value)));
+            }}
+            className="h-10 px-4 bg-bg-input border border-[#2A2A2A] rounded-md text-text-primary text-sm"
+          >
+            {expirations.map(iso=>{
+              const [y,m,d]=iso.split('-').map((s,i)=>i===1?parseInt(s,10)-1:parseInt(s,10));
+              const dt=new Date(y,m,d), days=computeDays(iso);
+              return <option key={iso} value={iso} className="text-sm">
+                {dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} ({days}d)
+              </option>;
+            })}
+          </select>
         </div>
-      )}
+
+        {/* option table */}
+        <div className="overflow-y-auto max-h-64 scrollbar-none">
+          <table className="w-full table-fixed text-left text-sm">
+            <thead className="sticky top-0 bg-bg-default">
+              <tr className="border-b border-[#2A2A2A]">
+                {['Strike','Last','Bid','Ask','In The Money','Select'].map((h,i)=>(
+                  <th key={i} className="pb-2 font-medium text-center">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {chain.map(r=>{
+                const isSel = selectedOption?.contractSymbol===r.contractSymbol;
+                return (
+                  <tr key={r.contractSymbol} className="hover:bg-bg-input">
+                    {[
+                      `\$${r.strike.toFixed(2)}`,
+                      `\$${r.lastPrice.toFixed(2)}`,
+                      `\$${r.bid.toFixed(2)}`,
+                      `\$${r.ask.toFixed(2)}`,
+                      r.inTheMoney
+                        ? <span className="text-green-500 font-bold">✔</span>
+                        : <span className="text-text-secondary">–</span>
+                    ].map((cell,idx)=>(
+                      <td key={idx} className="py-1 text-center">{cell}</td>
+                    ))}
+                    <td className="py-1 text-center">
+                      <button
+                        onClick={()=>setSelectedOption(r)}
+                        className={`px-2 py-0.5 rounded text-sm ${
+                          isSel
+                           ? 'bg-green-500 text-black'
+                           : 'bg-transparent border border-green-500 text-green-500 hover:bg-green-600/20'
+                        }`}
+                      >{isSel?'✓':'Select'}</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
