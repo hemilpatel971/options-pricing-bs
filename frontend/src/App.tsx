@@ -1,32 +1,48 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Header from './components/Header';
-import BlackScholesPanel from './components/BlackScholesPanel';
+import SpotPanel from './components/SpotPanel';
+import OptionPicker from './components/OptionPicker';
 
-const App: React.FC = () => (
-  <div className="min-h-screen bg-bg-default text-text-primary">
-    <Header />
+export default function App() {
+  const [symbol, setSymbol] = useState<string>('');
+  const [spotError, setSpotError] = useState<string | null>(null);
 
-    <div className="flex">
-      {/* Sidebar: 20rem wide, fixed from below header, full viewport height, no scrollbars */}
-      <aside
-        className="
-          fixed top-16 bottom-0 left-0   /* span from header bottom to viewport bottom */
-          w-80                            /* 20rem */
-          bg-bg-panel text-text-primary
-          p-6
-          border-r border-[#2A2A2A]
-          overflow-hidden                 /* hide any internal scrollbars */
-        "
-      >
-        <BlackScholesPanel />
-      </aside>
+  const onSpotSearch = async (sym: string) => {
+    setSpotError(null);
+    // validate the ticker before setting it
+    const res = await fetch(`/api/bs/spot?ticker=${sym}`);
+    if (!res.ok) {
+      const e = await res.json();
+      setSpotError(e.detail || 'Ticker not found');
+      setSymbol('');
+    } else {
+      setSymbol(sym);
+    }
+  };
 
-      {/* Main content flows alongside */}
-      <main className="ml-80 flex-1 p-6">
-        {/* Your other components go here */}
-      </main>
+  const onClearError = () => setSpotError(null);
+
+  return (
+    <div className="min-h-screen bg-bg-default text-text-primary transition-colors px-8">
+      <Header
+        onSpotSearch={onSpotSearch}
+        spotError={spotError}
+        onClearError={onClearError}
+      />
+
+      <div className="flex">
+        <aside className="w-80 p-6 bg-bg-default">
+          <SpotPanel symbol={symbol} />
+        </aside>
+        <main className="flex-1 p-6">
+          {symbol ? (
+            <OptionPicker symbol={symbol} />
+            ) : (
+              <p className="text-text-secondary">Search for a ticker to see its options.</p>
+            )}
+          {/* other components (OptionControls, calculators, etc.) */}
+        </main>
+      </div>
     </div>
-  </div>
-);
-
-export default App;
+  );
+}
