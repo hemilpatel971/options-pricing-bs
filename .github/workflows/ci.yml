@@ -25,16 +25,17 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: pytest --maxfail=1 --disable-warnings -q
 
+      # ---- Front-end / Jest ---- 
+
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'        
-          cache: 'npm'
+          node-version: '18'
 
       - name: Install front-end dependencies
-        working-directory: ./frontend
         run: npm ci
+        working-directory: frontend
 
       - name: Run front-end unit tests
-        working-directory: ./frontend
         run: npm test
+        working-directory: frontend
