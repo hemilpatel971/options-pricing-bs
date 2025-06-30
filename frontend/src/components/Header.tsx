@@ -4,17 +4,20 @@ import DarkModeToggle from './DarkModeToggle';
 
 const Header: React.FC = () => {
   return (
-    <header className="
-      w-full bg-neutral-50 text-neutral-900
-      dark:bg-neutral-900 dark:text-neutral-100
-      shadow-md
-    ">
-      <div className="max-w-7xl mx-auto flex items-center justify-between p-4">
-
+    <header
+      className="
+        h-16                      /* fixed height so sidebar can offset from it */
+        w-full
+        bg-neutral-50 text-neutral-900
+        dark:bg-neutral-900 dark:text-text-primary
+        shadow-md
+      "
+    >
+      <div className="max-w-7xl mx-auto flex items-center justify-between h-full px-4">
         {/* Left: GitHub + LinkedIn + Name */}
         <div className="flex items-center space-x-4">
           <a
-            href="https://github.com/hemilpatel971/options-pricing-bs"
+            href="https://github.com/YOUR_REPO"
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-primary-400 dark:hover:text-primary-300 transition-colors"
@@ -46,7 +49,6 @@ const Header: React.FC = () => {
           </a>
           <DarkModeToggle />
         </div>
-
       </div>
     </header>
   );
