@@ -320,4 +320,7 @@ export default function BlackScholesPanel() {
       </button>
     </div>
   );
+
 }
+
+

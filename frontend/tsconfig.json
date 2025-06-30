@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["DOM", "ESNext"],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    
+    // if you use `@/` as an alias:
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["*"]
+    },
+
+    // strictness & interop
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // include these so Jest globals and RTL matchers are known
+    "types": ["jest", "node", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ],
+  "exclude": ["node_modules", "dist"]
+}
