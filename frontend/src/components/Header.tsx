@@ -18,7 +18,7 @@ export default function Header({ onSpotSearch, spotError, onClearError }: Header
   };
 
   return (
-    <header className="flex items-center px-6 h-16 text-text-primary space-y-1 bg-transparent shadow-none border-none">
+    <header className="flex items-center px-6 h-16 text-text-primary space-y-1 shadow-none border-none">
       {/* Left: icons + search */}
       <div className="flex items-center space-x-4">
         <a

@@ -74,28 +74,45 @@ export default function OptionPicker({
 
   // fetch & slice the option chain
   useEffect(() => {
-    const sp = parseFloat(spotStr)||0;
-    if (!symbol||!selectedExpiry) return;
-    fetch(`/api/bs/option_chain?ticker=${symbol}&expiration=${selectedExpiry}`)
-      .then(r=>r.json())
-      .then(d=>{
-        const rows: OptionRow[] = (side==='call'?d.calls:d.puts)
-          .map((o:any)=>({
-            contractSymbol:o.contractSymbol,
-            strike:o.strike,
-            bid:o.bid,
-            ask:o.ask,
-            lastPrice:o.lastPrice,
-            inTheMoney:o.inTheMoney
-          }))
-          .sort((a,b)=>b.strike-a.strike);
+    const sp = parseFloat(spotStr) || 0;
+    if (!symbol || !selectedExpiry) return;
 
-        const idx = rows.findIndex(r=>r.strike<=sp);
-        const center = idx>=0?idx:Math.floor(rows.length/2);
-        const start  = Math.max(0, center-4);
-        setChain(rows.slice(start, start+9));
+    fetch(`/api/bs/option_chain?ticker=${symbol}&expiration=${selectedExpiry}`)
+      .then(r => r.json())
+      .then(d => {
+        // 1) build full table sorted descending strikes
+        const rows: OptionRow[] = (side === 'call' ? d.calls : d.puts)
+          .map((o: any) => ({
+            contractSymbol: o.contractSymbol,
+            strike: o.strike,
+            bid: o.bid,
+            ask: o.ask,
+            lastPrice: o.lastPrice,
+            inTheMoney: o.inTheMoney,
+          }))
+          .sort((a, b) => b.strike - a.strike);
+
+        // 2) find pivot index
+        let idx = -1;
+        if (side === 'call') {
+          // first strike >= spot
+          idx = rows.findIndex(r => r.strike >= sp);
+        } else {
+          // (put) first strike <= spot
+          idx = rows.findIndex(r => r.strike <= sp);
+        }
+        if (idx === -1) {
+          // fallback to middle
+          idx = Math.floor(rows.length / 2);
+        }
+
+        // 3) slice 16 entries starting from pivot
+        const slice = rows.slice(idx, idx + 16);
+
+        setChain(slice);
       });
   }, [symbol, selectedExpiry, side, spotStr]);
+
 
   // fire calculation back to App
   const handleCalculate = () => {
